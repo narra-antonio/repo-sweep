@@ -125,6 +125,35 @@ exclude = ["node_modules", "target", "dist", ".angular", ".gradle", ".idea", ".v
 dev_branch = "develop"
 ```
 
+## Installation
+
+Download the archive for your system from the
+[releases](https://github.com/narra-antonio/repo-sweep/releases) page, extract it and put
+`repo-sweep` (`repo-sweep.exe` on Windows) in a folder on your `PATH`. `git` must be installed.
+
+| System | Archive |
+|---|---|
+| Windows x64 / ARM64 | `repo-sweep-<version>-x86_64-pc-windows-msvc.zip` / `aarch64-pc-windows-msvc.zip` |
+| macOS Intel / Apple silicon | `repo-sweep-<version>-x86_64-apple-darwin.tar.gz` / `aarch64-apple-darwin.tar.gz` |
+| Linux x64 (static) | `repo-sweep-<version>-x86_64-unknown-linux-musl.tar.gz` |
+
+`SHA256SUMS.txt` lists the checksums of the archives. On macOS, an executable downloaded with a
+browser is quarantined: allow it once with `xattr -d com.apple.quarantine repo-sweep`.
+
+With a Rust toolchain: `cargo install --git https://github.com/narra-antonio/repo-sweep`.
+
+## Releasing
+
+Bump `version` in `Cargo.toml`, commit, then push a matching tag:
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+The `Release` workflow builds the executables and publishes them, with the checksums, in a
+GitHub release; GitHub adds the source code archives.
+
 ## Building
 
 ```bash
