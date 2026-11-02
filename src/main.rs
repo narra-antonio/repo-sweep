@@ -53,6 +53,9 @@ enum Commands {
         /// What to do when a required server is unreachable (default: from the configuration)
         #[arg(long, value_enum)]
         on_unreachable: Option<UnreachableArg>,
+        /// Write the full report to this Markdown file and print only the summary
+        #[arg(long, value_name = "FILE")]
+        report: Option<PathBuf>,
     },
 }
 
@@ -115,6 +118,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
             paths,
             dry_run,
             on_unreachable,
+            report: report_file,
         } => {
             let roots = roots_or_current(paths)?;
             let (config, config_path) = load_config(cli.config.as_deref(), &roots)?;
@@ -123,7 +127,22 @@ fn run(cli: Cli) -> Result<ExitCode> {
                 on_unreachable: on_unreachable.map(Into::into),
             };
             let report = sync::run(&roots, &config, config_path, options)?;
-            print!("{report}");
+            match report_file {
+                Some(file) => {
+                    repo_sweep::report::write(&file, &report, &roots)?;
+                    let text = report.to_string();
+                    let summary = text.lines().filter(|line| {
+                        line.starts_with("Summary:")
+                            || line.starts_with("Dry run: no branch")
+                            || line.starts_with("Required server")
+                    });
+                    for line in summary {
+                        println!("{line}");
+                    }
+                    println!("Report: {}", file.display());
+                }
+                None => print!("{report}"),
+            }
             Ok(exit_code(report.aborted.is_empty()))
         }
     }

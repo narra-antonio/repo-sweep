@@ -402,3 +402,25 @@ fn skips_repositories_whose_remote_has_no_branches() {
     );
     assert!(ref_exists(&fx.clone, "refs/heads/develop"));
 }
+
+#[test]
+fn deletes_squash_merged_branches_changed_again_by_others() {
+    let fx = Fixture::new();
+    fx.pushed_branch("CREW-6");
+    git(&fx.clone, &["switch", "-q", "develop"]);
+    // The MR is squashed after the branch was brought up to date: the squash commit has the same
+    // content as the branch. Then a colleague changes the same file again.
+    git(&fx.other, &["fetch", "-q"]);
+    git(&fx.other, &["merge", "-q", "--squash", "origin/CREW-6"]);
+    git(&fx.other, &["commit", "-q", "-m", "CREW-6 squashed"]);
+    fs::write(fx.other.join("CREW-6.txt"), "changed again by a colleague").unwrap();
+    git(&fx.other, &["commit", "-q", "-am", "follow-up"]);
+    git(&fx.other, &["push", "-q", "origin", "develop"]);
+    fx.delete_remote_branch("CREW-6");
+    git(&fx.clone, &["fetch", "-q", "--prune"]);
+
+    let result = fx.sync(false);
+
+    let reason = deleted(&result, "CREW-6").unwrap_or_else(|| panic!("{result:?}"));
+    assert!(reason.contains("same content"), "{reason}");
+}

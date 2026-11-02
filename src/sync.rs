@@ -430,6 +430,18 @@ impl RepoSyncer<'_> {
             Some("pushed, then deleted on the remote".to_string())
         } else if git::contained_in_remote(self.path, self.remote, &branch.sha)? {
             Some(format!("its commits are on {}", self.remote))
+        } else if let Some(commit) = dev_ref
+            .map(|dev_ref| git::same_content_in_history(self.path, &branch.sha, dev_ref))
+            .transpose()?
+            .flatten()
+        {
+            Some(format!(
+                "same content as {} in {} (squash merge)",
+                &commit[..commit.len().min(10)],
+                dev_ref
+                    .unwrap_or_default()
+                    .trim_start_matches("refs/remotes/")
+            ))
         } else {
             dev_ref
                 .filter(|dev_ref| {

@@ -307,6 +307,26 @@ pub fn changes_already_in(repo: &Path, sha: &str, base: &str) -> Result<bool> {
     Ok(base_tree.success && base_tree.stdout.trim() == merged_tree)
 }
 
+/// A commit of `tip`'s history, after the point where `sha` started from it, with exactly the
+/// same content (tree) as `sha`: the branch was merged as it is, for example squashed after
+/// being brought up to date. Later changes by others to the same files do not matter.
+pub fn same_content_in_history(repo: &Path, sha: &str, tip: &str) -> Result<Option<String>> {
+    let tree = run_ok(Some(repo), &["rev-parse", &format!("{sha}^{{tree}}")])?;
+    let base = run(Some(repo), &["merge-base", sha, tip])?;
+    if !base.success {
+        return Ok(None);
+    }
+    let range = format!("{}..{tip}", base.stdout.trim());
+    let history = run_ok(
+        Some(repo),
+        &["log", "--format=%H %T", "--max-count=20000", &range],
+    )?;
+    Ok(history.lines().find_map(|line| {
+        let (commit, commit_tree) = line.split_once(' ')?;
+        (commit_tree.trim() == tree.trim()).then(|| commit.to_string())
+    }))
+}
+
 /// Uncommitted changes: modified tracked files and number of untracked files.
 pub fn working_tree_changes(repo: &Path) -> Result<(Vec<String>, usize)> {
     let output = run_ok(
