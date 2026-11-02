@@ -135,7 +135,7 @@ Download the archive for your system from the
 |---|---|
 | Windows x64 / ARM64 | `repo-sweep-<version>-x86_64-pc-windows-msvc.zip` / `aarch64-pc-windows-msvc.zip` |
 | macOS Intel / Apple silicon | `repo-sweep-<version>-x86_64-apple-darwin.tar.gz` / `aarch64-apple-darwin.tar.gz` |
-| Linux x64 (static) | `repo-sweep-<version>-x86_64-unknown-linux-musl.tar.gz` |
+| Linux x64 / ARM64 (static) | `repo-sweep-<version>-x86_64-unknown-linux-musl.tar.gz` / `aarch64-unknown-linux-musl.tar.gz` |
 
 `SHA256SUMS.txt` lists the checksums of the archives. On macOS, an executable downloaded with a
 browser is quarantined: allow it once with `xattr -d com.apple.quarantine repo-sweep`.
@@ -144,15 +144,17 @@ With a Rust toolchain: `cargo install --git https://github.com/narra-antonio/rep
 
 ## Releasing
 
-Bump `version` in `Cargo.toml`, commit, then push a matching tag:
+Move the `[Unreleased]` notes of `CHANGELOG.md` under the new version, bump `version` in
+`Cargo.toml`, commit, then push a matching tag:
 
 ```bash
 git tag v0.1.0
 git push origin v0.1.0
 ```
 
-The `Release` workflow builds the executables and publishes them, with the checksums, in a
-GitHub release; GitHub adds the source code archives.
+The `Release` workflow builds the executables and publishes them, with the checksums and the
+notes of that version from `CHANGELOG.md`, in a GitHub release; GitHub adds the source code
+archives.
 
 ## Building
 
