@@ -6,6 +6,8 @@ All notable changes to this project are documented in this file. The format foll
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-11-02
+
 ### Added
 
 - Linux ARM64 executable (`aarch64-unknown-linux-musl`) in the releases.
@@ -41,5 +43,6 @@ First release.
   Scheduler (Windows) or a systemd user timer (Linux).
 - Executables for Windows (x64, ARM64), macOS (Intel, Apple silicon) and Linux (x64, static).
 
-[Unreleased]: https://github.com/narra-antonio/repo-sweep/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/narra-antonio/repo-sweep/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/narra-antonio/repo-sweep/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/narra-antonio/repo-sweep/releases/tag/v0.1.0
