@@ -5,8 +5,9 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 
 use repo_sweep::check;
-use repo_sweep::config::Config;
+use repo_sweep::config::{Config, OnUnreachable};
 use repo_sweep::detect::{self, DetectOptions};
+use repo_sweep::sync::{self, SyncOptions};
 
 /// Keep many local git repositories in sync with their remotes and clean up the branches
 /// deleted after a merge.
@@ -41,6 +42,35 @@ enum Commands {
         #[arg(long)]
         dry_run: bool,
     },
+    /// Bring every repository up to date with its remote and delete the branches whose remote
+    /// branch was deleted
+    Sync {
+        /// Root folders or single repositories (default: the current folder)
+        paths: Vec<PathBuf>,
+        /// Show what would be done without changing any branch
+        #[arg(long)]
+        dry_run: bool,
+        /// What to do when a required server is unreachable (default: from the configuration)
+        #[arg(long, value_enum)]
+        on_unreachable: Option<UnreachableArg>,
+    },
+}
+
+#[derive(Clone, Copy, clap::ValueEnum)]
+enum UnreachableArg {
+    /// Stop before touching any repository
+    Abort,
+    /// Skip only the repositories of the unreachable server
+    Skip,
+}
+
+impl From<UnreachableArg> for OnUnreachable {
+    fn from(value: UnreachableArg) -> Self {
+        match value {
+            UnreachableArg::Abort => OnUnreachable::Abort,
+            UnreachableArg::Skip => OnUnreachable::Skip,
+        }
+    }
 }
 
 /// Exit code when a required server is unreachable.
@@ -78,6 +108,21 @@ fn run(cli: Cli) -> Result<ExitCode> {
                 config_path,
                 DetectOptions { force, dry_run },
             )?;
+            print!("{report}");
+            Ok(exit_code(report.aborted.is_empty()))
+        }
+        Commands::Sync {
+            paths,
+            dry_run,
+            on_unreachable,
+        } => {
+            let roots = roots_or_current(paths)?;
+            let (config, config_path) = load_config(cli.config.as_deref(), &roots)?;
+            let options = SyncOptions {
+                dry_run,
+                on_unreachable: on_unreachable.map(Into::into),
+            };
+            let report = sync::run(&roots, &config, config_path, options)?;
             print!("{report}");
             Ok(exit_code(report.aborted.is_empty()))
         }

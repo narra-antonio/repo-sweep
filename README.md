@@ -8,7 +8,7 @@ clones slowly fill up with stale branches and outdated development branches. `re
 walks a folder tree, finds every repository and brings each one up to date — without ever
 touching uncommitted work.
 
-> **Status:** early development. `check` and `detect` are available; `sync` and `schedule` are planned.
+> **Status:** early development. `check`, `detect` and `sync` are available; `schedule` is planned.
 
 ## Features
 
@@ -24,6 +24,7 @@ touching uncommitted work.
 |---|---|
 | `repo-sweep check [PATHS...]` | Check the servers and list the repositories found, without changing anything |
 | `repo-sweep detect [PATHS...] [--force] [--dry-run]` | Find the development branch of each repository and save it in the configuration |
+| `repo-sweep sync [PATHS...] [--dry-run] [--on-unreachable abort\|skip]` | Bring every repository up to date and delete the branches whose remote branch is gone |
 
 `PATHS` are root folders (searched recursively) or single repositories; the default is the
 current folder.
@@ -46,12 +47,30 @@ they disappear from the remote; `--force` detects every repository again.
 Remote failures are reported by kind: server unreachable, remote repository not found (or no
 access with the credentials in use), authentication failed.
 
+### Synchronisation
+
+For each repository, `sync`:
+
+1. fetches the remote with `--prune --force`;
+2. when the working tree is clean, switches to the development branch (creating it from the
+   remote when missing);
+3. fast-forwards every local branch that follows a remote branch — the checked-out one with
+   `git merge --ff-only`, the others without checking them out;
+4. deletes the local branches whose remote branch is gone, only when their work cannot be
+   lost: the branch was pushed as it is, its commits are on another remote branch, or its
+   changes are already in the development branch (squash merge, checked with
+   `git merge-tree`, git 2.38 or later).
+
+It never merges, rebases or discards anything. It reports instead: uncommitted changes (with
+the files), operations in progress, stashes, branches with commits not pushed, diverged
+branches, deleted remote branches with local commits, branches checked out in other worktrees.
+Local branches without an upstream are never touched.
+
+`--dry-run` shows the plan without changing any branch: it fetches without pruning, so that the
+real run can still prove which deleted branches were pushed.
+
 ### Planned
 
-- `sync`: fetch with prune, fast-forward the development branch, `master`/`main` and every
-  local branch that still has a remote, delete the local branches whose remote is gone,
-  return to the development branch. Repositories with uncommitted changes are reported, never
-  modified.
 - `schedule`: register a daily or weekly run in the operating system scheduler (launchd,
   Task Scheduler, systemd timers).
 

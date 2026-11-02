@@ -10,3 +10,4 @@ pub mod git;
 pub mod parallel;
 pub mod remote;
 pub mod remote_error;
+pub mod sync;
