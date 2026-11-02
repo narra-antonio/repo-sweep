@@ -1,13 +1,16 @@
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 
 use repo_sweep::check;
 use repo_sweep::config::{Config, OnUnreachable};
 use repo_sweep::detect::{self, DetectOptions};
-use repo_sweep::sync::{self, SyncOptions};
+use repo_sweep::notify;
+use repo_sweep::report;
+use repo_sweep::schedule::{self, Task, When};
+use repo_sweep::sync::{self, Action, Status, SyncOptions, SyncReport};
 
 /// Keep many local git repositories in sync with their remotes and clean up the branches
 /// deleted after a merge.
@@ -54,9 +57,40 @@ enum Commands {
         #[arg(long, value_enum)]
         on_unreachable: Option<UnreachableArg>,
         /// Write the full report to this Markdown file and print only the summary
-        #[arg(long, value_name = "FILE")]
+        #[arg(long, value_name = "FILE", conflicts_with = "report_dir")]
         report: Option<PathBuf>,
+        /// Write the full report to a time-stamped file in this folder, keeping the most recent
+        /// ones (`keep_reports` in the configuration)
+        #[arg(long, value_name = "DIR")]
+        report_dir: Option<PathBuf>,
+        /// Show a desktop notification with the summary at the end
+        #[arg(long)]
+        notify: bool,
     },
+    /// Run `sync` periodically through the scheduler of the operating system
+    Schedule {
+        #[command(subcommand)]
+        action: ScheduleAction,
+    },
+}
+
+#[derive(Subcommand)]
+enum ScheduleAction {
+    /// Register (or replace) the scheduled sync
+    Install {
+        /// Root folders or single repositories (default: the current folder)
+        paths: Vec<PathBuf>,
+        /// Local time of the run, HH:MM
+        #[arg(long, value_name = "HH:MM")]
+        at: String,
+        /// Run only on this day of the week (mon, tue, ... sun); every day when omitted
+        #[arg(long)]
+        day: Option<String>,
+    },
+    /// Show the scheduled sync
+    Status,
+    /// Remove the scheduled sync
+    Remove,
 }
 
 #[derive(Clone, Copy, clap::ValueEnum)]
@@ -119,6 +153,8 @@ fn run(cli: Cli) -> Result<ExitCode> {
             dry_run,
             on_unreachable,
             report: report_file,
+            report_dir,
+            notify: show_notification,
         } => {
             let roots = roots_or_current(paths)?;
             let (config, config_path) = load_config(cli.config.as_deref(), &roots)?;
@@ -126,26 +162,132 @@ fn run(cli: Cli) -> Result<ExitCode> {
                 dry_run,
                 on_unreachable: on_unreachable.map(Into::into),
             };
-            let report = sync::run(&roots, &config, config_path, options)?;
-            match report_file {
+            let sync_report = sync::run(&roots, &config, config_path, options)?;
+            let written = match (report_file, report_dir) {
+                (Some(file), _) => {
+                    report::write(&file, &sync_report, &roots)?;
+                    Some(file)
+                }
+                (None, Some(dir)) => Some(report::write_to_dir(
+                    &dir,
+                    &sync_report,
+                    &roots,
+                    config.keep_reports,
+                )?),
+                (None, None) => None,
+            };
+            match &written {
                 Some(file) => {
-                    repo_sweep::report::write(&file, &report, &roots)?;
-                    let text = report.to_string();
-                    let summary = text.lines().filter(|line| {
-                        line.starts_with("Summary:")
-                            || line.starts_with("Dry run: no branch")
-                            || line.starts_with("Required server")
-                    });
-                    for line in summary {
-                        println!("{line}");
-                    }
+                    println!("{}", summary(&sync_report));
                     println!("Report: {}", file.display());
                 }
-                None => print!("{report}"),
+                None => print!("{sync_report}"),
             }
-            Ok(exit_code(report.aborted.is_empty()))
+            if show_notification {
+                let mut message = summary(&sync_report);
+                if let Some(file) = &written {
+                    message.push_str(&format!("\nReport: {}", file.display()));
+                }
+                notify::send("repo-sweep", &message);
+            }
+            Ok(exit_code(sync_report.aborted.is_empty()))
+        }
+        Commands::Schedule { action } => schedule_command(action, cli.config),
+    }
+}
+
+fn schedule_command(action: ScheduleAction, config: Option<PathBuf>) -> Result<ExitCode> {
+    match action {
+        ScheduleAction::Install { paths, at, day } => {
+            let when = When::parse(&at, day.as_deref())?;
+            let roots = roots_or_current(paths)?
+                .into_iter()
+                .map(|root| std::path::absolute(&root).unwrap_or(root))
+                .collect::<Vec<_>>();
+            for root in &roots {
+                if !root.is_dir() {
+                    anyhow::bail!("{} is not a folder", root.display());
+                }
+            }
+            let data = dirs::data_local_dir()
+                .context("cannot find the local data folder")?
+                .join("repo-sweep");
+            let executable =
+                std::env::current_exe().context("cannot find the repo-sweep executable")?;
+            let mut command = vec![executable.display().to_string()];
+            if let Some(config) = config {
+                command.push("--config".to_string());
+                command.push(
+                    std::path::absolute(&config)
+                        .unwrap_or(config)
+                        .display()
+                        .to_string(),
+                );
+            }
+            command.extend([
+                "sync".to_string(),
+                // Unattended: a server that is down must not stop the other repositories.
+                "--on-unreachable".to_string(),
+                "skip".to_string(),
+                "--report-dir".to_string(),
+                data.join("reports").display().to_string(),
+                "--notify".to_string(),
+            ]);
+            command.extend(roots.iter().map(|root| root.display().to_string()));
+            let task = Task {
+                when,
+                command,
+                path_env: std::env::var("PATH").ok(),
+                log_dir: data.join("logs"),
+            };
+            let installed = schedule::install(&task)?;
+            println!("Scheduled sync {when}: {installed}");
+            println!("Reports: {}", data.join("reports").display());
+            Ok(ExitCode::SUCCESS)
+        }
+        ScheduleAction::Status => {
+            println!("{}", schedule::status()?);
+            Ok(ExitCode::SUCCESS)
+        }
+        ScheduleAction::Remove => {
+            println!("{}", schedule::remove()?);
+            Ok(ExitCode::SUCCESS)
         }
     }
+}
+
+/// One-line summary of a sync, for the terminal and the notification.
+fn summary(report: &SyncReport) -> String {
+    if !report.aborted.is_empty() {
+        let servers: Vec<String> = report.aborted.iter().map(|e| e.to_string()).collect();
+        return format!(
+            "Required server unreachable ({}): nothing done",
+            servers.join(", ")
+        );
+    }
+    let count = |predicate: fn(&Action) -> bool| {
+        report
+            .repos
+            .iter()
+            .flat_map(|r| &r.actions)
+            .filter(|a| predicate(a))
+            .count()
+    };
+    let alerts: usize = report.repos.iter().map(|r| r.alerts.len()).sum();
+    let errors = report
+        .repos
+        .iter()
+        .filter(|r| matches!(r.status, Status::Failed(_)))
+        .count();
+    format!(
+        "{}{} repositories: {} branches updated, {} deleted, {} alerts, {} errors",
+        if report.dry_run { "Dry run, " } else { "" },
+        report.repos.len(),
+        count(|a| matches!(a, Action::FastForwarded { .. })),
+        count(|a| matches!(a, Action::Deleted { .. })),
+        alerts,
+        errors
+    )
 }
 
 fn roots_or_current(paths: Vec<PathBuf>) -> Result<Vec<PathBuf>> {

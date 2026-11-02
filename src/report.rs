@@ -3,11 +3,9 @@
 use std::fmt::Write as _;
 use std::fs;
 use std::path::Path;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result};
 
-use crate::detect::format_date;
 use crate::sync::{Action, Alert, RepoSync, Status, SyncReport};
 
 /// Renders the report as Markdown.
@@ -18,7 +16,7 @@ pub fn to_markdown(report: &SyncReport, roots: &[std::path::PathBuf]) -> String 
     } else {
         "repo-sweep sync"
     };
-    let _ = writeln!(out, "# {title} — {}\n", now_utc());
+    let _ = writeln!(out, "# {title} — {}\n", now_local());
     let folders: Vec<String> = roots.iter().map(|r| format!("`{}`", r.display())).collect();
     let _ = writeln!(out, "Folders: {}\n", folders.join(", "));
 
@@ -231,24 +229,85 @@ fn cell(text: &str) -> String {
     text.replace('|', "\\|").replace('\n', " ")
 }
 
-fn now_utc() -> String {
-    let seconds = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or_default();
-    let time = seconds.rem_euclid(86_400);
-    format!(
-        "{} {:02}:{:02} UTC",
-        format_date(seconds),
-        time / 3_600,
-        (time % 3_600) / 60
-    )
+fn now_local() -> String {
+    chrono::Local::now().format("%Y-%m-%d %H:%M").to_string()
+}
+
+/// File name prefix of the reports written by `write_to_dir`.
+const REPORT_PREFIX: &str = "sync-";
+
+/// Writes the report into `dir` with a time-stamped name and keeps only the `keep` most recent
+/// reports. Returns the path of the new report.
+pub fn write_to_dir(
+    dir: &Path,
+    report: &SyncReport,
+    roots: &[std::path::PathBuf],
+    keep: usize,
+) -> Result<std::path::PathBuf> {
+    let name = format!(
+        "{REPORT_PREFIX}{}.md",
+        chrono::Local::now().format("%Y-%m-%d_%H%M%S")
+    );
+    let path = dir.join(name);
+    write(&path, report, roots)?;
+    prune_reports(dir, keep.max(1))?;
+    Ok(path)
+}
+
+/// Deletes the oldest reports, keeping the `keep` most recent ones. Only files written by
+/// `write_to_dir` are considered.
+pub fn prune_reports(dir: &Path, keep: usize) -> Result<()> {
+    let mut reports: Vec<std::path::PathBuf> = fs::read_dir(dir)
+        .with_context(|| format!("cannot read {}", dir.display()))?
+        .filter_map(|entry| entry.ok().map(|e| e.path()))
+        .filter(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.starts_with(REPORT_PREFIX) && name.ends_with(".md"))
+        })
+        .collect();
+    // The names sort chronologically.
+    reports.sort();
+    let excess = reports.len().saturating_sub(keep);
+    for old in &reports[..excess] {
+        fs::remove_file(old).with_context(|| format!("cannot delete {}", old.display()))?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::remote_error::RemoteError;
+
+    #[test]
+    fn keeps_only_the_most_recent_reports() {
+        let dir = tempfile::TempDir::new().unwrap();
+        for day in 1..=5 {
+            fs::write(
+                dir.path().join(format!("sync-2026-11-0{day}_020000.md")),
+                "x",
+            )
+            .unwrap();
+        }
+        fs::write(dir.path().join("notes.md"), "not a report").unwrap();
+
+        prune_reports(dir.path(), 2).unwrap();
+
+        let mut names: Vec<String> = fs::read_dir(dir.path())
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().to_string())
+            .collect();
+        names.sort();
+        assert_eq!(
+            names,
+            vec![
+                "notes.md",
+                "sync-2026-11-04_020000.md",
+                "sync-2026-11-05_020000.md"
+            ]
+        );
+    }
 
     #[test]
     fn escapes_table_cells() {

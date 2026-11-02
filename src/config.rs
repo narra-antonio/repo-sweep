@@ -41,6 +41,8 @@ pub struct Config {
     pub connect_timeout_secs: u64,
     /// Number of repositories processed at the same time.
     pub parallel: usize,
+    /// Number of reports kept by `sync --report-dir`.
+    pub keep_reports: usize,
     /// Development branch names, in order of preference when their age is the same.
     pub dev_candidates: Vec<String>,
     /// Branches used as development branch when none of `dev_candidates` exists.
@@ -65,6 +67,7 @@ impl Default for Config {
             exclude: DEFAULT_EXCLUDE.iter().map(|s| s.to_string()).collect(),
             connect_timeout_secs: 5,
             parallel: 8,
+            keep_reports: 30,
             dev_candidates: vec!["develop".to_string(), "feature".to_string()],
             fallback_branches: vec!["main".to_string(), "master".to_string()],
             repos: BTreeMap::new(),

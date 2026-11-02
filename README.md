@@ -8,7 +8,7 @@ clones slowly fill up with stale branches and outdated development branches. `re
 walks a folder tree, finds every repository and brings each one up to date — without ever
 touching uncommitted work.
 
-> **Status:** early development. `check`, `detect` and `sync` are available; `schedule` is planned.
+> **Status:** early development: all the commands below are available.
 
 ## Features
 
@@ -24,7 +24,9 @@ touching uncommitted work.
 |---|---|
 | `repo-sweep check [PATHS...]` | Check the servers and list the repositories found, without changing anything |
 | `repo-sweep detect [PATHS...] [--force] [--dry-run]` | Find the development branch of each repository and save it in the configuration |
-| `repo-sweep sync [PATHS...] [--dry-run] [--on-unreachable abort\|skip]` | Bring every repository up to date and delete the branches whose remote branch is gone |
+| `repo-sweep sync [PATHS...] [--dry-run] [--on-unreachable abort\|skip] [--report FILE \| --report-dir DIR] [--notify]` | Bring every repository up to date and delete the branches whose remote branch is gone |
+| `repo-sweep schedule install --at HH:MM [--day DAY] [PATHS...]` | Run `sync` every day (or every week) through the scheduler of the operating system |
+| `repo-sweep schedule status` / `schedule remove` | Show or remove the scheduled run |
 
 `PATHS` are root folders (searched recursively) or single repositories; the default is the
 current folder.
@@ -69,10 +71,32 @@ Local branches without an upstream are never touched.
 `--dry-run` shows the plan without changing any branch: it fetches without pruning, so that the
 real run can still prove which deleted branches were pushed.
 
-### Planned
+With many repositories, `--report FILE` writes the full report as Markdown (tables of the
+updated, deleted and switched branches, the alerts, the remote errors) and prints only the
+summary; `--report-dir DIR` writes a time-stamped report and keeps the most recent
+`keep_reports` ones. `--notify` shows a desktop notification with the summary.
 
-- `schedule`: register a daily or weekly run in the operating system scheduler (launchd,
-  Task Scheduler, systemd timers).
+### Scheduling
+
+`schedule install` registers `sync` in the scheduler of the operating system — no process stays
+in the background:
+
+| System | Scheduler | Files |
+|---|---|---|
+| macOS | launchd agent | `~/Library/LaunchAgents/io.github.repo-sweep.sync.plist` |
+| Windows | Task Scheduler task `repo-sweep` | `%APPDATA%\repo-sweep\scheduled-sync.cmd` |
+| Linux | systemd user timer | `~/.config/systemd/user/repo-sweep.{service,timer}` |
+
+The scheduled run uses `--on-unreachable skip` (an unreachable server only skips its
+repositories), writes its reports to the local data folder (`repo-sweep/reports`) and shows a
+notification. It runs the executable that performed the installation, with the `PATH` of the
+installing shell: install `repo-sweep` in a stable place first (for example `cargo install
+--path .`).
+
+```bash
+repo-sweep schedule install --at 02:00 ~/work           # every day at 02:00
+repo-sweep schedule install --at 08:30 --day mon ~/work # every Monday at 08:30
+```
 
 ## Configuration
 
@@ -92,6 +116,7 @@ on_unreachable = "abort"
 max_depth = 4
 connect_timeout_secs = 5
 parallel = 8
+keep_reports = 30
 dev_candidates = ["develop", "feature"]
 fallback_branches = ["main", "master"]
 exclude = ["node_modules", "target", "dist", ".angular", ".gradle", ".idea", ".venv", "venv", "__pycache__"]
