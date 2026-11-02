@@ -39,7 +39,13 @@ pub struct Config {
     pub exclude: Vec<String>,
     /// Timeout of each reachability check, in seconds.
     pub connect_timeout_secs: u64,
-    /// Per-repository settings, keyed by the repository path.
+    /// Number of repositories processed at the same time.
+    pub parallel: usize,
+    /// Development branch names, in order of preference when their age is the same.
+    pub dev_candidates: Vec<String>,
+    /// Branches used as development branch when none of `dev_candidates` exists.
+    pub fallback_branches: Vec<String>,
+    /// Per-repository settings, keyed by the absolute repository path.
     pub repos: BTreeMap<String, RepoConfig>,
 }
 
@@ -58,6 +64,9 @@ impl Default for Config {
             max_depth: 4,
             exclude: DEFAULT_EXCLUDE.iter().map(|s| s.to_string()).collect(),
             connect_timeout_secs: 5,
+            parallel: 8,
+            dev_candidates: vec!["develop".to_string(), "feature".to_string()],
+            fallback_branches: vec!["main".to_string(), "master".to_string()],
             repos: BTreeMap::new(),
         }
     }
@@ -114,9 +123,58 @@ impl Config {
             .collect()
     }
 
+    /// Development branch saved for a repository.
+    pub fn dev_branch(&self, repo: &Path) -> Option<&str> {
+        self.repos.get(&repo_key(repo))?.dev_branch.as_deref()
+    }
+
     pub fn connect_timeout(&self) -> Duration {
         Duration::from_secs(self.connect_timeout_secs.max(1))
     }
+}
+
+/// Key of a repository in the `repos` table: its absolute path.
+pub fn repo_key(repo: &Path) -> String {
+    std::path::absolute(repo)
+        .unwrap_or_else(|_| repo.to_path_buf())
+        .display()
+        .to_string()
+}
+
+/// Writes the development branch of each repository into the configuration file, keeping
+/// the rest of the file (comments included) unchanged. Creates the file when missing.
+pub fn save_dev_branches(path: &Path, branches: &BTreeMap<String, String>) -> Result<()> {
+    let text = if path.is_file() {
+        fs::read_to_string(path).with_context(|| format!("cannot read {}", path.display()))?
+    } else {
+        String::new()
+    };
+    let mut document: toml_edit::DocumentMut = text
+        .parse()
+        .with_context(|| format!("invalid configuration in {}", path.display()))?;
+    let repos = document
+        .entry("repos")
+        .or_insert_with(|| {
+            let mut table = toml_edit::Table::new();
+            table.set_implicit(true);
+            toml_edit::Item::Table(table)
+        })
+        .as_table_like_mut()
+        .context("'repos' must be a table")?;
+    for (key, branch) in branches {
+        let entry = repos
+            .entry(key)
+            .or_insert_with(|| toml_edit::Item::Table(toml_edit::Table::new()))
+            .as_table_like_mut()
+            .with_context(|| format!("repos.\"{key}\" must be a table"))?;
+        entry.insert("dev_branch", toml_edit::value(branch.as_str()));
+    }
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("cannot create {}", parent.display()))?;
+    }
+    fs::write(path, document.to_string())
+        .with_context(|| format!("cannot write {}", path.display()))
 }
 
 /// Path of the user-level configuration file, for example
@@ -162,6 +220,62 @@ mod tests {
             config.repos["/work/backend"].dev_branch.as_deref(),
             Some("develop")
         );
+    }
+
+    #[test]
+    fn saves_dev_branches_keeping_comments() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join(LOCAL_FILE_NAME);
+        fs::write(
+            &path,
+            "# my servers\nrequired_hosts = [\"git.example.com:4242\"]\n\n[repos.\"/work/a\"]\ndev_branch = \"feature\"\n",
+        )
+        .unwrap();
+        let branches = BTreeMap::from([
+            ("/work/a".to_string(), "develop".to_string()),
+            ("/work/b".to_string(), "master".to_string()),
+        ]);
+
+        save_dev_branches(&path, &branches).unwrap();
+
+        let text = fs::read_to_string(&path).unwrap();
+        assert!(text.contains("# my servers"));
+        let config = Config::parse(&text).unwrap();
+        assert_eq!(config.required_hosts, vec!["git.example.com:4242"]);
+        assert_eq!(
+            config.repos["/work/a"].dev_branch.as_deref(),
+            Some("develop")
+        );
+        assert_eq!(
+            config.repos["/work/b"].dev_branch.as_deref(),
+            Some("master")
+        );
+    }
+
+    #[test]
+    fn creates_missing_configuration_file() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("nested/config.toml");
+        let branches = BTreeMap::from([("/work/a".to_string(), "main".to_string())]);
+
+        save_dev_branches(&path, &branches).unwrap();
+
+        let config = Config::parse(&fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(config.repos["/work/a"].dev_branch.as_deref(), Some("main"));
+    }
+
+    #[test]
+    fn finds_dev_branch_by_absolute_path() {
+        let dir = TempDir::new().unwrap();
+        let mut config = Config::default();
+        config.repos.insert(
+            repo_key(dir.path()),
+            RepoConfig {
+                dev_branch: Some("develop".to_string()),
+            },
+        );
+        assert_eq!(config.dev_branch(dir.path()), Some("develop"));
+        assert_eq!(config.dev_branch(&dir.path().join("other")), None);
     }
 
     #[test]

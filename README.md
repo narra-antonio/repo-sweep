@@ -8,7 +8,7 @@ clones slowly fill up with stale branches and outdated development branches. `re
 walks a folder tree, finds every repository and brings each one up to date — without ever
 touching uncommitted work.
 
-> **Status:** early development. Only the read-only `check` command is available.
+> **Status:** early development. `check` and `detect` are available; `sync` and `schedule` are planned.
 
 ## Features
 
@@ -23,11 +23,28 @@ touching uncommitted work.
 | Command | Description |
 |---|---|
 | `repo-sweep check [PATHS...]` | Check the servers and list the repositories found, without changing anything |
+| `repo-sweep detect [PATHS...] [--force] [--dry-run]` | Find the development branch of each repository and save it in the configuration |
 
 `PATHS` are root folders (searched recursively) or single repositories; the default is the
 current folder.
 
 Exit codes: `0` success, `1` error, `2` a required server is unreachable.
+
+### Development branch detection
+
+`detect` reads the branches published by each remote (`git ls-remote`) and picks:
+
+1. the only `dev_candidates` branch present (`develop`, `feature` by default);
+2. when several are present, the one with the most recent commit;
+3. otherwise the first `fallback_branches` branch present (`main`, `master`);
+4. otherwise the default branch of the remote.
+
+The result is saved in the `[repos]` table of the configuration file (comments and the rest
+of the file are kept), so later runs do not work it out again. Saved branches are kept until
+they disappear from the remote; `--force` detects every repository again.
+
+Remote failures are reported by kind: server unreachable, remote repository not found (or no
+access with the credentials in use), authentication failed.
 
 ### Planned
 
@@ -35,7 +52,6 @@ Exit codes: `0` success, `1` error, `2` a required server is unreachable.
   local branch that still has a remote, delete the local branches whose remote is gone,
   return to the development branch. Repositories with uncommitted changes are reported, never
   modified.
-- `detect`: find the development branch of each repository and save it in the configuration.
 - `schedule`: register a daily or weekly run in the operating system scheduler (launchd,
   Task Scheduler, systemd timers).
 
@@ -56,6 +72,9 @@ on_unreachable = "abort"
 
 max_depth = 4
 connect_timeout_secs = 5
+parallel = 8
+dev_candidates = ["develop", "feature"]
+fallback_branches = ["main", "master"]
 exclude = ["node_modules", "target", "dist", ".angular", ".gradle", ".idea", ".venv", "venv", "__pycache__"]
 
 [repos."/home/me/work/backend"]

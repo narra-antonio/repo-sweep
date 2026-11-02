@@ -4,6 +4,9 @@
 pub mod check;
 pub mod config;
 pub mod connectivity;
+pub mod detect;
 pub mod discovery;
 pub mod git;
+pub mod parallel;
 pub mod remote;
+pub mod remote_error;
