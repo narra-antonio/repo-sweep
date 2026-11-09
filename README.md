@@ -59,7 +59,8 @@ be given. The default is the current folder.
 
 Download the archive for your system from the
 [latest release](https://github.com/narra-antonio/repo-sweep/releases/latest), extract it and put
-`repo-sweep` (`repo-sweep.exe` on Windows) in a folder on your `PATH`. `git` must be installed.
+`repo-sweep` (`repo-sweep.exe` on Windows) in a folder on your `PATH` — step by step below.
+`git` must be installed.
 
 | System  | Archive                                             | Arch                 |
 | ------- | --------------------------------------------------- | -------------------- |
@@ -74,6 +75,97 @@ Download the archive for your system from the
 browser is quarantined: allow it once with `xattr -d com.apple.quarantine repo-sweep`.
 
 With a Rust toolchain: `cargo install --git https://github.com/narra-antonio/repo-sweep`.
+
+---
+
+## 📥 Installation
+
+The commands below install `v0.1.2`; use the latest version from the
+[releases page](https://github.com/narra-antonio/repo-sweep/releases/latest). Install the
+executable in a stable place: scheduled runs use the copy that installed them. To update, run the
+same commands with the new version.
+
+### 🐧 Linux
+
+```bash
+VERSION=v0.1.2
+ARCH=$(uname -m)                   # x86_64 or aarch64
+NAME="repo-sweep-${VERSION}-${ARCH}-unknown-linux-musl"
+cd /tmp
+curl -fsSLO "https://github.com/narra-antonio/repo-sweep/releases/download/${VERSION}/${NAME}.tar.gz"
+curl -fsSLO "https://github.com/narra-antonio/repo-sweep/releases/download/${VERSION}/SHA256SUMS.txt"
+sha256sum --check --ignore-missing SHA256SUMS.txt
+tar -xzf "${NAME}.tar.gz"
+sudo install -m 755 "${NAME}/repo-sweep" /usr/local/bin/repo-sweep
+repo-sweep --version
+```
+
+Without `sudo`: `install -D -m 755 "${NAME}/repo-sweep" ~/.local/bin/repo-sweep` (most
+distributions put `~/.local/bin` on the `PATH` at login). For scheduled runs while you are logged
+out: `loginctl enable-linger "$USER"`.
+
+### 🪟 WSL
+
+The Linux commands, inside the WSL distribution. Then:
+
+- keep the repositories in the Linux file system (`~/work`), not under `/mnt/c/...`: git on the
+  Windows drives is very slow and mixes up file modes and line endings;
+- credentials are WSL's own: SSH keys go in WSL's `~/.ssh`. For HTTPS remotes you can reuse the
+  Windows Git Credential Manager:
+  `git config --global credential.helper "/mnt/c/Program\ Files/Git/mingw64/bin/git-credential-manager.exe"`;
+- scheduled runs need systemd: `printf '[boot]\nsystemd=true\n' | sudo tee -a /etc/wsl.conf`,
+  then `wsl --shutdown` from Windows and `loginctl enable-linger "$USER"`. The timer fires only
+  while WSL is running; for a guaranteed nightly run, schedule it from Windows Task Scheduler:
+  `wsl.exe -d Ubuntu -- repo-sweep sync --on-unreachable skip ~/work` (with the executable in
+  `/usr/local/bin`: `wsl.exe --` does not read `~/.profile`);
+- desktop notifications need `notify-send` (`sudo apt install libnotify-bin`) and WSLg; without
+  them the reports are still written to `~/.local/share/repo-sweep/reports`.
+
+### 🍎 macOS
+
+```bash
+VERSION=v0.1.2
+ARCH=$(uname -m | sed 's/arm64/aarch64/')   # x86_64 (Intel) or aarch64 (Apple silicon)
+NAME="repo-sweep-${VERSION}-${ARCH}-apple-darwin"
+cd /tmp
+curl -fsSLO "https://github.com/narra-antonio/repo-sweep/releases/download/${VERSION}/${NAME}.tar.gz"
+curl -fsSLO "https://github.com/narra-antonio/repo-sweep/releases/download/${VERSION}/SHA256SUMS.txt"
+shasum -a 256 --check --ignore-missing SHA256SUMS.txt
+tar -xzf "${NAME}.tar.gz"
+sudo mkdir -p /usr/local/bin
+sudo install -m 755 "${NAME}/repo-sweep" /usr/local/bin/repo-sweep
+repo-sweep --version
+```
+
+Downloaded with `curl` the executable is not quarantined; downloaded with a browser, allow it once
+with `xattr -d com.apple.quarantine repo-sweep`.
+
+### 🪟 Windows (PowerShell)
+
+```powershell
+$Version = 'v0.1.2'
+$Arch = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'aarch64' } else { 'x86_64' }
+$Name = "repo-sweep-$Version-$Arch-pc-windows-msvc"
+$Base = "https://github.com/narra-antonio/repo-sweep/releases/download/$Version"
+$Tmp  = Join-Path $env:TEMP $Name
+Invoke-WebRequest "$Base/$Name.zip" -OutFile "$Tmp.zip" -UseBasicParsing
+Invoke-WebRequest "$Base/SHA256SUMS.txt" -OutFile "$Tmp-SHA256SUMS.txt" -UseBasicParsing
+$Expected = ((Select-String -Path "$Tmp-SHA256SUMS.txt" -Pattern "$Name.zip" -SimpleMatch).Line -split '\s+')[0]
+if ((Get-FileHash "$Tmp.zip" -Algorithm SHA256).Hash -ne $Expected.ToUpper()) { throw 'Checksum mismatch' }
+Expand-Archive "$Tmp.zip" -DestinationPath $env:TEMP -Force
+$Dest = Join-Path $env:LOCALAPPDATA 'Programs\repo-sweep'
+New-Item -ItemType Directory -Force $Dest | Out-Null
+Copy-Item "$Tmp\repo-sweep.exe" $Dest -Force
+$UserPath = [Environment]::GetEnvironmentVariable('Path', 'User')
+if ($UserPath -notlike "*$Dest*") { [Environment]::SetEnvironmentVariable('Path', "$UserPath;$Dest", 'User') }
+```
+
+Open a new terminal and check with `repo-sweep --version`. No administrator rights are needed;
+the `PATH` change is for the current user.
+
+### 🔔 New versions
+
+On GitHub: **Watch → Custom → Releases** sends an e-mail at every new release.
 
 ---
 
@@ -109,7 +201,8 @@ For each repository:
 
 1. fetches the remote with `--prune --force`;
 2. when the working tree is clean, switches to the development branch (creating it from the
-   remote when missing);
+   remote when missing) — unless the current branch has commits that are neither on the remote
+   nor already merged: that is the work in progress, so it stays there and says so;
 3. fast-forwards every local branch that follows a remote branch — the checked-out one with
    `git merge --ff-only`, the others without checking them out;
 4. deletes the local branches whose remote branch is gone, only when their work cannot be lost:
@@ -119,6 +212,9 @@ For each repository:
      up-to-date branch, even if others changed the same files later);
    - merging it into the development branch changes nothing (squash merge, checked with
      `git merge-tree`, git 2.38 or later).
+
+   Every deleted branch is reported with the commit it pointed to (`deleted CREW-1 (was
+   1a2b3c4d5e): ...`): `git branch CREW-1 1a2b3c4d5e` brings it back.
 
 It never merges, rebases or discards anything. It reports instead: uncommitted changes (with
 the files), operations in progress, stashes, branches with commits not pushed, diverged

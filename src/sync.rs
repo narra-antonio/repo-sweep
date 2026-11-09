@@ -32,10 +32,24 @@ pub struct SyncOptions {
 /// A change made (or planned, in a dry run) to a repository.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Action {
-    CreatedBranch { branch: String },
-    Switched { from: Option<String>, to: String },
-    FastForwarded { branch: String, commits: usize },
-    Deleted { branch: String, reason: String },
+    CreatedBranch {
+        branch: String,
+    },
+    Switched {
+        from: Option<String>,
+        to: String,
+    },
+    FastForwarded {
+        branch: String,
+        commits: usize,
+    },
+    /// `sha` is the abbreviated commit the branch pointed to: `git branch <branch> <sha>`
+    /// restores it.
+    Deleted {
+        branch: String,
+        sha: String,
+        reason: String,
+    },
 }
 
 /// Something the user should look at.
@@ -53,6 +67,13 @@ pub enum Alert {
     SwitchFailed {
         to: String,
         error: String,
+    },
+    /// Not switched to the development branch: the current branch has commits that are not on
+    /// the remote, so it is probably the work in progress.
+    StayedOnBranch {
+        branch: String,
+        dev: String,
+        commits: usize,
     },
     /// The branch is behind its remote but has uncommitted changes.
     NotUpdated {
@@ -260,21 +281,29 @@ impl RepoSyncer<'_> {
             }
             Some(dev) => Some(dev.clone()),
         };
+        let dev_ref = dev
+            .as_ref()
+            .map(|dev| format!("refs/remotes/{}/{dev}", self.remote));
+        let prefix = format!("refs/remotes/{}/", self.remote);
         if let Some(dev) = &dev {
             if clean
                 && current.as_deref() != Some(dev.as_str())
                 && !elsewhere.contains(dev)
+                && !self.has_work_in_progress(
+                    current.as_deref(),
+                    &branches,
+                    dev,
+                    &heads,
+                    &before_prune,
+                    dev_ref.as_deref(),
+                )?
                 && self.switch_to(dev, &branches, current.clone())?
             {
                 current = Some(dev.clone());
             }
         }
-        let dev_ref = dev
-            .as_ref()
-            .map(|dev| format!("refs/remotes/{}/{dev}", self.remote));
 
         // 4. Every local branch that follows a branch of this remote.
-        let prefix = format!("refs/remotes/{}/", self.remote);
         for branch in &branches {
             let Some(remote_branch) = branch
                 .upstream
@@ -301,6 +330,51 @@ impl RepoSyncer<'_> {
             }
         }
         Ok(())
+    }
+
+    /// Whether the current branch holds commits that are on no branch of the remote: it is
+    /// probably the work in progress, so `sync` stays on it instead of switching away.
+    fn has_work_in_progress(
+        &mut self,
+        current: Option<&str>,
+        branches: &[git::LocalBranch],
+        dev: &str,
+        heads: &BTreeSet<String>,
+        before_prune: &BTreeMap<String, String>,
+        dev_ref: Option<&str>,
+    ) -> Result<bool> {
+        let Some(branch) = current.and_then(|name| branches.iter().find(|b| b.name == name)) else {
+            return Ok(false);
+        };
+        let commits = git::count_commits(
+            self.path,
+            &[&branch.sha, "--not", &format!("--remotes={}", self.remote)],
+        )?;
+        if commits == 0 {
+            return Ok(false);
+        }
+        // A finished branch (remote branch deleted after a merge) is not work in progress: the
+        // same checks that allow deleting it allow leaving it.
+        let prefix = format!("refs/remotes/{}/", self.remote);
+        let gone_remote_branch = branch
+            .upstream
+            .as_deref()
+            .and_then(|upstream| upstream.strip_prefix(&prefix))
+            .filter(|remote_branch| !heads.contains(*remote_branch));
+        if let Some(remote_branch) = gone_remote_branch {
+            if self
+                .deletion_reason(branch, before_prune.get(remote_branch), dev_ref)?
+                .is_some()
+            {
+                return Ok(false);
+            }
+        }
+        self.result.alerts.push(Alert::StayedOnBranch {
+            branch: branch.name.clone(),
+            dev: dev.to_string(),
+            commits,
+        });
+        Ok(true)
     }
 
     /// Switches to the development branch, creating it from the remote when missing.
@@ -426,7 +500,18 @@ impl RepoSyncer<'_> {
         sha_before_prune: Option<&String>,
         dev_ref: Option<&str>,
     ) -> Result<()> {
-        let reason = if sha_before_prune == Some(&branch.sha) {
+        let reason = self.deletion_reason(branch, sha_before_prune, dev_ref)?;
+        self.delete_or_alert(branch, reason)
+    }
+
+    /// Why a branch whose remote branch is gone can be deleted without losing work, if it can.
+    fn deletion_reason(
+        &self,
+        branch: &git::LocalBranch,
+        sha_before_prune: Option<&String>,
+        dev_ref: Option<&str>,
+    ) -> Result<Option<String>> {
+        Ok(if sha_before_prune == Some(&branch.sha) {
             Some("pushed, then deleted on the remote".to_string())
         } else if git::contained_in_remote(self.path, self.remote, &branch.sha)? {
             Some(format!("its commits are on {}", self.remote))
@@ -453,7 +538,10 @@ impl RepoSyncer<'_> {
                         dev_ref.trim_start_matches("refs/remotes/")
                     )
                 })
-        };
+        })
+    }
+
+    fn delete_or_alert(&mut self, branch: &git::LocalBranch, reason: Option<String>) -> Result<()> {
         let Some(reason) = reason else {
             let commits = git::count_commits(
                 self.path,
@@ -477,6 +565,7 @@ impl RepoSyncer<'_> {
         }
         self.result.actions.push(Action::Deleted {
             branch: branch.name.clone(),
+            sha: short_sha(&branch.sha),
             reason,
         });
         Ok(())
@@ -492,9 +581,17 @@ impl fmt::Display for Action {
                 None => write!(f, "switched to {to}"),
             },
             Action::FastForwarded { branch, commits } => {
-                write!(f, "updated {branch} (+{commits} commits)")
+                write!(
+                    f,
+                    "updated {branch} (+{})",
+                    plural(*commits, "commit", "commits")
+                )
             }
-            Action::Deleted { branch, reason } => write!(f, "deleted {branch}: {reason}"),
+            Action::Deleted {
+                branch,
+                sha,
+                reason,
+            } => write!(f, "deleted {branch} (was {sha}): {reason}"),
         }
     }
 }
@@ -505,7 +602,12 @@ impl fmt::Display for Alert {
             Alert::UncommittedChanges { files } => {
                 let shown: Vec<&str> = files.iter().take(5).map(String::as_str).collect();
                 let more = files.len().saturating_sub(shown.len());
-                write!(f, "uncommitted changes ({} files): {}", files.len(), shown.join(", "))?;
+                write!(
+                    f,
+                    "uncommitted changes ({} files): {}",
+                    files.len(),
+                    shown.join(", ")
+                )?;
                 if more > 0 {
                     write!(f, " and {more} more")?;
                 }
@@ -519,12 +621,26 @@ impl fmt::Display for Alert {
                 "development branch {branch} is no longer on the remote: run detect --force"
             ),
             Alert::SwitchFailed { to, error } => write!(f, "cannot switch to {to}: {error}"),
+            Alert::StayedOnBranch {
+                branch,
+                dev,
+                commits,
+            } => write!(
+                f,
+                "stayed on {branch} instead of switching to {dev}: {} not on the remote",
+                plural(*commits, "commit is", "commits are")
+            ),
             Alert::NotUpdated { branch, commits } => write!(
                 f,
-                "{branch} not updated (+{commits} commits on the remote) because of uncommitted changes"
+                "{branch} not updated (+{} on the remote) because of uncommitted changes",
+                plural(*commits, "commit", "commits")
             ),
             Alert::Unpushed { branch, commits } => {
-                write!(f, "{branch} has {commits} commits not pushed")
+                write!(
+                    f,
+                    "{branch} has {} not pushed",
+                    plural(*commits, "commit", "commits")
+                )
             }
             Alert::Diverged {
                 branch,
@@ -532,18 +648,23 @@ impl fmt::Display for Alert {
                 behind,
             } => write!(
                 f,
-                "{branch} diverged from the remote ({ahead} local, {behind} remote commits)"
+                "{branch} diverged from the remote ({ahead} local, {behind} remote {})",
+                if *behind == 1 { "commit" } else { "commits" }
             ),
             Alert::GoneWithLocalCommits { branch, commits } => write!(
                 f,
-                "{branch}: remote branch deleted, kept because {commits} commits are not on the remote"
+                "{branch}: remote branch deleted, kept because {} not on the remote",
+                plural(*commits, "commit is", "commits are")
             ),
             Alert::GoneButCheckedOut { branch } => write!(
                 f,
                 "{branch}: remote branch deleted, kept because it is checked out"
             ),
             Alert::CheckedOutElsewhere { branch } => {
-                write!(f, "{branch} is checked out in another worktree: not touched")
+                write!(
+                    f,
+                    "{branch} is checked out in another worktree: not touched"
+                )
             }
             Alert::GitError(error) => write!(f, "git error: {error}"),
         }
@@ -630,4 +751,14 @@ impl fmt::Display for SyncReport {
         }
         Ok(())
     }
+}
+
+/// "1 commit", "3 commits".
+fn plural(count: usize, one: &str, many: &str) -> String {
+    format!("{count} {}", if count == 1 { one } else { many })
+}
+
+/// The first 10 characters of a commit hash, as git shows it in the messages.
+fn short_sha(sha: &str) -> String {
+    sha[..sha.len().min(10)].to_string()
 }

@@ -170,7 +170,9 @@ impl Fixture {
 
 fn deleted(result: &RepoSync, branch: &str) -> Option<String> {
     result.actions.iter().find_map(|action| match action {
-        Action::Deleted { branch: b, reason } if b == branch => Some(reason.clone()),
+        Action::Deleted {
+            branch: b, reason, ..
+        } if b == branch => Some(reason.clone()),
         _ => None,
     })
 }
@@ -423,4 +425,62 @@ fn deletes_squash_merged_branches_changed_again_by_others() {
 
     let reason = deleted(&result, "CREW-6").unwrap_or_else(|| panic!("{result:?}"));
     assert!(reason.contains("same content"), "{reason}");
+}
+
+#[test]
+fn stays_on_a_branch_with_commits_not_on_the_remote() {
+    let fx = Fixture::new();
+    fx.pushed_branch("CREW-7");
+    commit(&fx.clone, "wip.txt", "work in progress");
+
+    let result = fx.sync(false);
+
+    assert!(!result
+        .actions
+        .iter()
+        .any(|a| matches!(a, Action::Switched { .. })));
+    assert!(result.alerts.contains(&Alert::StayedOnBranch {
+        branch: "CREW-7".to_string(),
+        dev: "develop".to_string(),
+        commits: 1
+    }));
+    assert_eq!(
+        git_output(&fx.clone, &["branch", "--show-current"]),
+        "CREW-7"
+    );
+}
+
+#[test]
+fn stays_on_a_local_branch_never_pushed() {
+    let fx = Fixture::new();
+    git(&fx.clone, &["switch", "-q", "-c", "spike", "develop"]);
+    commit(&fx.clone, "spike.txt", "spike");
+
+    let result = fx.sync(false);
+
+    assert!(result.alerts.iter().any(|a| matches!(
+        a,
+        Alert::StayedOnBranch { branch, .. } if branch == "spike"
+    )));
+    assert_eq!(
+        git_output(&fx.clone, &["branch", "--show-current"]),
+        "spike"
+    );
+}
+
+#[test]
+fn deleted_branches_report_the_commit_they_pointed_to() {
+    let fx = Fixture::new();
+    fx.pushed_branch("CREW-8");
+    let tip = sha(&fx.clone, "CREW-8");
+    fx.delete_remote_branch("CREW-8");
+
+    let result = fx.sync(false);
+
+    let sha = result.actions.iter().find_map(|action| match action {
+        Action::Deleted { branch, sha, .. } if branch == "CREW-8" => Some(sha.clone()),
+        _ => None,
+    });
+    assert_eq!(sha.as_deref(), Some(&tip[..10]));
+    assert!(!ref_exists(&fx.clone, "refs/heads/CREW-8"));
 }

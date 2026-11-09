@@ -117,15 +117,21 @@ pub fn to_markdown(report: &SyncReport, roots: &[std::path::PathBuf]) -> String 
     if !deleted.is_empty() {
         let _ = writeln!(
             out,
-            "\n## Deleted branches\n\n| Repository | Branch | Reason |\n|---|---|---|"
+            "\n## Deleted branches\n\n| Repository | Branch | Was | Reason |\n|---|---|---|---|"
         );
         for (repo, action) in deleted {
-            if let Action::Deleted { branch, reason } = action {
+            if let Action::Deleted {
+                branch,
+                sha,
+                reason,
+            } = action
+            {
                 let _ = writeln!(
                     out,
-                    "| {} | `{}` | {} |",
+                    "| {} | `{}` | `{}` | {} |",
                     cell(&repo.display),
                     cell(branch),
+                    sha,
                     cell(reason)
                 );
             }
@@ -352,6 +358,7 @@ mod tests {
                         },
                         Action::Deleted {
                             branch: "CREW-1".into(),
+                            sha: "0123456789".into(),
                             reason: "pushed".into(),
                         },
                     ],
@@ -376,7 +383,7 @@ mod tests {
 
         assert!(markdown.contains("| Branches updated | 1 |"));
         assert!(markdown.contains("| work/a | develop (+3) |"));
-        assert!(markdown.contains("| work/a | `CREW-1` | pushed |"));
+        assert!(markdown.contains("| work/a | `CREW-1` | `0123456789` | pushed |"));
         assert!(markdown.contains("| work/a | 2 stash entries |"));
         assert!(markdown.contains("## Remote errors"));
         assert!(markdown.contains("| work/c | no remote |"));

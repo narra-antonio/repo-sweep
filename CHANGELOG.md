@@ -6,6 +6,21 @@ All notable changes to this project are documented in this file. The format foll
 
 ## [Unreleased]
 
+### Changed
+
+- `sync` no longer switches away from a branch that holds commits neither on the remote nor
+  already merged: it stays on the work in progress and reports why (`stayed on CREW-1 instead of
+  switching to develop: 3 commits are not on the remote`). Finished branches are left as before.
+- Deleted branches are reported with the commit they pointed to (`deleted CREW-1 (was
+  1a2b3c4d5e): ...`, and a "Was" column in the Markdown report), so they can be restored with
+  `git branch CREW-1 1a2b3c4d5e`.
+- Singular in the messages: `+1 commit`, `1 commit is not on the remote`.
+
+### Added
+
+- README: step-by-step installation for Linux, WSL, macOS and Windows, with checksum
+  verification, and how to be notified of new releases.
+
 ## [0.1.1] - 2026-11-02
 
 ### Added
