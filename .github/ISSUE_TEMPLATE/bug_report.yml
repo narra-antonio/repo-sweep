@@ -11,8 +11,8 @@ body:
     id: version
     attributes:
       label: repo-sweep version
-      description: Output of `repo-sweep --version`
-      placeholder: repo-sweep 0.1.2
+      description: Output of `repo-sweep --version` (from 0.1.3 it includes the build target)
+      placeholder: repo-sweep 0.1.3 (aarch64-apple-darwin)
     validations:
       required: true
   - type: dropdown

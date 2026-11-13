@@ -12,10 +12,19 @@ use repo_sweep::report;
 use repo_sweep::schedule::{self, Task, When};
 use repo_sweep::sync::{self, Action, Status, SyncOptions, SyncReport};
 
+/// Version and target triple, e.g. `0.1.3 (aarch64-apple-darwin)`: bug reports then say which build
+/// and operating system they come from.
+const VERSION: &str = concat!(
+    env!("CARGO_PKG_VERSION"),
+    " (",
+    env!("REPO_SWEEP_TARGET"),
+    ")"
+);
+
 /// Keep many local git repositories in sync with their remotes and clean up the branches
 /// deleted after a merge.
 #[derive(Parser)]
-#[command(name = "repo-sweep", version)]
+#[command(name = "repo-sweep", version = VERSION)]
 struct Cli {
     /// Configuration file (default: repo-sweep.toml in the first folder, then the user
     /// configuration folder)

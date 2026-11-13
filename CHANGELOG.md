@@ -6,6 +6,16 @@ All notable changes to this project are documented in this file. The format foll
 
 ## [Unreleased]
 
+### Changed
+
+- `--version` also prints the target the executable was built for, e.g.
+  `repo-sweep 0.1.3 (aarch64-apple-darwin)`, so a bug report says which build and operating system
+  it comes from.
+
+### Added
+
+- Issue templates for bug reports and feature requests.
+
 ## [0.1.2] - 2026-11-10
 
 ### Changed
