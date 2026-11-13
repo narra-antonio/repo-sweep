@@ -80,7 +80,7 @@ With a Rust toolchain: `cargo install --git https://github.com/narra-antonio/rep
 
 ## 📥 Installation
 
-The commands below install `v0.1.2`; use the latest version from the
+The commands below install `v0.1.3`; use the latest version from the
 [releases page](https://github.com/narra-antonio/repo-sweep/releases/latest). Install the
 executable in a stable place: scheduled runs use the copy that installed them. To update, run the
 same commands with the new version.
@@ -88,7 +88,7 @@ same commands with the new version.
 ### 🐧 Linux
 
 ```bash
-VERSION=v0.1.2
+VERSION=v0.1.3
 ARCH=$(uname -m)                   # x86_64 or aarch64
 NAME="repo-sweep-${VERSION}-${ARCH}-unknown-linux-musl"
 cd /tmp
@@ -124,7 +124,7 @@ The Linux commands, inside the WSL distribution. Then:
 ### 🍎 macOS
 
 ```bash
-VERSION=v0.1.2
+VERSION=v0.1.3
 ARCH=$(uname -m | sed 's/arm64/aarch64/')   # x86_64 (Intel) or aarch64 (Apple silicon)
 NAME="repo-sweep-${VERSION}-${ARCH}-apple-darwin"
 cd /tmp
@@ -143,7 +143,7 @@ with `xattr -d com.apple.quarantine repo-sweep`.
 ### 🪟 Windows (PowerShell)
 
 ```powershell
-$Version = 'v0.1.2'
+$Version = 'v0.1.3'
 $Arch = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'aarch64' } else { 'x86_64' }
 $Name = "repo-sweep-$Version-$Arch-pc-windows-msvc"
 $Base = "https://github.com/narra-antonio/repo-sweep/releases/download/$Version"

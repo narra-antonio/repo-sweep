@@ -6,6 +6,8 @@ All notable changes to this project are documented in this file. The format foll
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-11-13
+
 ### Changed
 
 - `--version` also prints the target the executable was built for, e.g.
@@ -70,7 +72,8 @@ First release.
   Scheduler (Windows) or a systemd user timer (Linux).
 - Executables for Windows (x64, ARM64), macOS (Intel, Apple silicon) and Linux (x64, static).
 
-[Unreleased]: https://github.com/narra-antonio/repo-sweep/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/narra-antonio/repo-sweep/compare/v0.1.3...HEAD
+[0.1.3]: https://github.com/narra-antonio/repo-sweep/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/narra-antonio/repo-sweep/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/narra-antonio/repo-sweep/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/narra-antonio/repo-sweep/releases/tag/v0.1.0
