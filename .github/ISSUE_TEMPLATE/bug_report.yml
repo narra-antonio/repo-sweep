@@ -1,0 +1,79 @@
+name: 🐞 Bug report
+description: Something does not work as described in the README
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a problem. Please remove from logs and reports anything you do
+        not want to publish: server names, repository paths, branch names, user names.
+  - type: input
+    id: version
+    attributes:
+      label: repo-sweep version
+      description: Output of `repo-sweep --version`
+      placeholder: repo-sweep 0.1.2
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - macOS (Apple Silicon)
+        - macOS (Intel)
+        - Windows (x64)
+        - Windows (arm64)
+        - Linux (x64)
+        - Linux (arm64)
+    validations:
+      required: true
+  - type: input
+    id: git
+    attributes:
+      label: git version
+      description: Output of `git --version`
+    validations:
+      required: true
+  - type: input
+    id: command
+    attributes:
+      label: Command
+      description: The exact command you ran
+      placeholder: repo-sweep sync ~/work --dry-run
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: What happened
+      description: Include the exit code (`echo $?` / `$LASTEXITCODE`) if relevant
+    validations:
+      required: true
+  - type: textarea
+    id: output
+    attributes:
+      label: Output or report
+      description: Terminal output, or the Markdown report of `sync --report` (redacted)
+      render: text
+  - type: textarea
+    id: repo-state
+    attributes:
+      label: State of the affected repository
+      description: |
+        If the problem concerns one repository: the output of `git status -sb`, `git branch -vv` and
+        `git remote -v` in that repository (redacted).
+      render: text
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I ran `repo-sweep check` and the servers of the affected repositories are reachable
+        - label: The same operation works with plain `git` on the command line

@@ -1,0 +1,33 @@
+name: ✨ Feature request
+description: Propose a new command, option or behaviour
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What are you trying to do, and why is it hard or impossible today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: How would you like repo-sweep to behave? Commands, options, example output.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Other tools or workarounds you use today
+  - type: dropdown
+    id: safety
+    attributes:
+      label: Could it change or delete local work?
+      description: repo-sweep never merges, rebases or resets, and never touches uncommitted work.
+      options:
+        - "No, it only reads or reports"
+        - "Yes, it would change branches or files (please explain the safeguards above)"
+    validations:
+      required: true

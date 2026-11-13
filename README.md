@@ -298,6 +298,13 @@ and the notes of that version.
 
 ---
 
+## 🐞 Reporting a problem or asking for a feature
+
+Open an [issue](https://github.com/narra-antonio/repo-sweep/issues/new/choose) and pick **Bug report** or
+**Feature request**: the form asks for what is needed (version, operating system, git version, command).
+
+---
+
 ## 📋 Changelog
 
 See [CHANGELOG.md](./CHANGELOG.md) for the changes of every version.
